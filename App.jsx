@@ -6,57 +6,42 @@ import HistoryView from './components/HistoryView';
 import ReportModal from './components/ReportModal';
 import Logo from './components/Logo';
 import Login from './components/Login';
+import { loadJSON, loadBool, saveJSON } from './utils/storage';
+
+const defaultSections = { carros: [], motos: [] };
 
 const App = () => {
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  // Theme, sidebar and main tab state
+  const [isDarkMode, setIsDarkMode] = useState(() => loadBool('theme', false));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('carros');
-  
-  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('autocheck_auth') === 'true');
-  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem('autocheck_user'));
 
+  // Authentication and current user
+  const [isAuthenticated, setIsAuthenticated] = useState(() => loadBool('autocheck_auth', false));
+  const [currentUser, setCurrentUser] = useState(() => window.localStorage.getItem('autocheck_user') || null);
+
+  // Report modal and selected form data
   const [showReport, setShowReport] = useState(false);
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
-  
-  const [history, setHistory] = useState(() => {
-    const saved = localStorage.getItem('autocheck_history');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (e) { return []; }
-    }
-    return [];
-  });
 
+  // Persistent data loaded from localStorage
+  const [history, setHistory] = useState(() => loadJSON('autocheck_history', []));
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [customSections, setCustomSections] = useState(() => loadJSON('autocheck_custom_sections', defaultSections));
+  const [savedVehicles, setSavedVehicles] = useState(() => loadJSON('autocheck_vehicles', []));
 
+  // Persist status to localStorage and toggle dark mode class
   useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    saveJSON('autocheck_history', history);
+    saveJSON('autocheck_custom_sections', customSections);
+    saveJSON('autocheck_vehicles', savedVehicles);
 
-  const [customSections, setCustomSections] = useState(() => {
-    const saved = localStorage.getItem('autocheck_custom_sections');
-    return saved ? JSON.parse(saved) : { carros: [], motos: [] };
-  });
-
-  const [savedVehicles, setSavedVehicles] = useState(() => {
-    const saved = localStorage.getItem('autocheck_vehicles');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('autocheck_history', JSON.stringify(history));
-    localStorage.setItem('autocheck_custom_sections', JSON.stringify(customSections));
-    localStorage.setItem('autocheck_vehicles', JSON.stringify(savedVehicles));
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
+      window.localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+      window.localStorage.setItem('theme', 'light');
     }
   }, [history, customSections, savedVehicles, isDarkMode]);
 

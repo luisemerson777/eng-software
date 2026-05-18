@@ -4,10 +4,10 @@ import QRCode from 'qrcode';
 
 const ReportModal = ({ data, onClose, onSaveToHistory }) => {
   const qrRef = useRef(null);
-  
+
+  // Gera o QR Code e disponibiliza o relatório para ações externas
   useEffect(() => {
     if (qrRef.current) {
-      // Gera um QR code
       const info = `Veículo: ${data.vehicle.brandModel} | Status: Pronto | AutoCheck`;
       QRCode.toCanvas(qrRef.current, info, {
         width: 80,

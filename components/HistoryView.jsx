@@ -10,7 +10,7 @@ const HistoryView = ({ history, onDelete, onViewReport }) => {
     return parseFloat(val.replace(/\./g, '').replace(',', '.'));
   };
 
-  // Parte do resumo financeiro
+  // Resumo financeiro e lista filtrada de histórico
   const totalBilling = history.reduce((acc, current) => acc + parseCurrency(current.totalValue), 0);
 
   const filtered = history.filter(item => 
