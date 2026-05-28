@@ -17,6 +17,13 @@ const App = () => {
   const [customSections, setCustomSections] = useState({ carros: [] });
   const [savedVehicles, setSavedVehicles] = useState([]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Aplica tema ao documento
   useEffect(() => {
     document.documentElement.classList[isDarkMode ? 'add' : 'remove']('dark');

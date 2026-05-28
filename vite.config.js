@@ -11,10 +11,10 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
-      // Removendo variáveis de ambiente relacionadas ao Gemini
+      // Alias para o código fonte em src/
       resolve: {
         alias: {
-          '@': path.resolve(process.cwd(), '.'),
+          '@': path.resolve(process.cwd(), 'src'),
         }
       }
     };
