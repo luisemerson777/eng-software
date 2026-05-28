@@ -1,138 +1,96 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { INITIAL_FORM_STATE } from './constants';
 import InspectionForm from './components/InspectionForm';
-import MotoInspectionForm from './components/MotoInspectionForm';
 import HistoryView from './components/HistoryView';
-import ReportModal from './components/ReportModal';
-import Logo from './components/Logo';
 import Login from './components/Login';
-import { loadJSON, loadBool, saveJSON } from './utils/storage';
 
-const defaultSections = { carros: [], motos: [] };
-
+// Componente principal da aplicação
 const App = () => {
-  // Theme, sidebar and main tab state
-  const [isDarkMode, setIsDarkMode] = useState(() => loadBool('theme', false));
+  const [isDarkMode, setIsDarkMode] = useState(() => (typeof window !== 'undefined' ? window.localStorage.getItem('theme') === 'dark' : false));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('carros');
-
-  // Authentication and current user
-  const [isAuthenticated, setIsAuthenticated] = useState(() => loadBool('autocheck_auth', false));
-  const [currentUser, setCurrentUser] = useState(() => window.localStorage.getItem('autocheck_user') || null);
-
-  // Report modal and selected form data
-  const [showReport, setShowReport] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => (typeof window !== 'undefined' ? window.localStorage.getItem('autocheck_auth') === 'true' : false));
+  const [currentUser, setCurrentUser] = useState(() => (typeof window !== 'undefined' ? window.localStorage.getItem('autocheck_user') : null));
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
-
-  // Persistent data loaded from localStorage
-  const [history, setHistory] = useState(() => loadJSON('autocheck_history', []));
+  const [history, setHistory] = useState([]);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
-  const [customSections, setCustomSections] = useState(() => loadJSON('autocheck_custom_sections', defaultSections));
-  const [savedVehicles, setSavedVehicles] = useState(() => loadJSON('autocheck_vehicles', []));
+  const [customSections, setCustomSections] = useState({ carros: [] });
+  const [savedVehicles, setSavedVehicles] = useState([]);
 
-  // Persist status to localStorage and toggle dark mode class
+  // Aplica tema ao documento
   useEffect(() => {
-    saveJSON('autocheck_history', history);
-    saveJSON('autocheck_custom_sections', customSections);
-    saveJSON('autocheck_vehicles', savedVehicles);
+    document.documentElement.classList[isDarkMode ? 'add' : 'remove']('dark');
+    if (typeof window !== 'undefined') window.localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      window.localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      window.localStorage.setItem('theme', 'light');
-    }
-  }, [history, customSections, savedVehicles, isDarkMode]);
-
-  const handleSubmit = (data) => {
-    setFormData(data);
-    setShowReport(true);
-  };
-
-  const handleSaveToHistory = (data) => {
-    // Salvar veículo se for novo
-    if (data.vehicle?.brandModel) {
-      setSavedVehicles(prev => {
-        const brands = prev.map(v => v.toLowerCase());
-        if (!brands.includes(data.vehicle.brandModel.toLowerCase())) {
-          return [...prev, data.vehicle.brandModel];
+  // Carrega histórico da API
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/inspections');
+        if (res.ok) {
+          const json = await res.json();
+          setHistory(json.inspections || []);
         }
-        return prev;
-      });
-    }
+      } catch (e) { console.error('Erro ao buscar histórico', e); }
+    };
+    load();
+  }, [isAuthenticated]);
 
-    setHistory(prev => {
-      const exists = prev.find(item => item.id === data.id);
-      if (exists) return prev.map(item => item.id === data.id ? data : item);
-      return [data, ...prev];
-    });
-    setShowReport(false);
-    setActiveTab('history');
-    setFormData(INITIAL_FORM_STATE);
-  };
+  // Salvar inspeção via API
+  const handleSaveToHistory = useCallback(async (data) => {
+    try {
+      const res = await fetch('/api/inspections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      if (res.ok) {
+        const json = await res.json();
+        setHistory(p => [json.inspection, ...p.filter(i => i.id !== json.inspection.id)]);
+        if (data.vehicle?.brandModel) setSavedVehicles(p => Array.from(new Set([...(p || []), data.vehicle.brandModel])));
+        setActiveTab('history');
+        setFormData(INITIAL_FORM_STATE);
+      }
+    } catch (e) { console.error('Erro ao salvar inspeção', e); }
+  }, []);
 
-  const handleAddSection = (category, title) => {
-    setCustomSections(prev => ({
-      ...prev,
-      [category]: [...prev[category], { id: Date.now(), title, fields: [] }]
-    }));
-  };
+  // Deletar inspeção via API
+  const handleDeleteInspection = useCallback(async (id) => {
+    try {
+      const res = await fetch(`/api/inspections/${id}`, { method: 'DELETE' });
+      if (res.ok) setHistory(p => p.filter(i => i.id !== id));
+    } catch (e) { console.error('Erro ao deletar', e); }
+  }, []);
 
-  const handleRemoveSection = (category, sectionId) => {
-    setCustomSections(prev => ({
-      ...prev,
-      [category]: prev[category].filter(s => String(s.id) !== String(sectionId))
-    }));
-  };
+  const handleAddSection = useCallback((cat, title) => setCustomSections(p => ({ ...p, [cat]: [...(p[cat]||[]), { id: Date.now(), title, fields: [] }] })), []);
+  const handleRemoveSection = useCallback((cat, sId) => setCustomSections(p => ({ ...p, [cat]: (p[cat]||[]).filter(s => String(s.id) !== String(sId)) })), []);
+  const handleAddField = useCallback((cat, sId, label) => setCustomSections(p => ({ ...p, [cat]: (p[cat]||[]).map(s => s.id === sId ? { ...s, fields: [...s.fields, { id: Date.now(), label }] } : s) })), []);
+  const handleRemoveField = useCallback((cat, sId, fId) => setCustomSections(p => ({ ...p, [cat]: (p[cat]||[]).map(s => String(s.id) === String(sId) ? { ...s, fields: s.fields.filter(f => String(f.id) !== String(fId)) } : s) })), []);
 
-  const handleAddFieldToSection = (category, sectionId, label) => {
-    setCustomSections(prev => ({
-      ...prev,
-      [category]: prev[category].map(s => s.id === sectionId ? {
-        ...s,
-        fields: [...s.fields, { id: Date.now(), label }]
-      } : s)
-    }));
-  };
+  const handleDeleteVehicle = useCallback((v) => setSavedVehicles(p => p.filter(x => x !== v)), []);
 
-  const handleRemoveFieldFromSection = (category, sectionId, fieldId) => {
-    setCustomSections(prev => ({
-      ...prev,
-      [category]: prev[category].map(s => String(s.id) === String(sectionId) ? {
-        ...s,
-        fields: s.fields.filter(f => String(f.id) !== String(fieldId))
-      } : s)
-    }));
-  };
+  // Autenticação via API
+  const handleLogin = useCallback(async ({ username, password }, onSuccess, onError) => {
+    try {
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      if (res.ok) {
+        const json = await res.json();
+        setIsAuthenticated(true); setCurrentUser(json.user);
+        if (typeof window !== 'undefined') { window.localStorage.setItem('autocheck_auth', 'true'); window.localStorage.setItem('autocheck_user', json.user); }
+        if (onSuccess) onSuccess(json.user);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        if (onError) onError(err.message || 'Erro ao autenticar');
+      }
+    } catch (e) { if (onError) onError('Erro de conexão'); }
+  }, []);
 
-  const handleDeleteSavedVehicle = (modelName) => {
-    setSavedVehicles(prev => prev.filter(v => v !== modelName));
-  };
-
-  const handleLogin = (user) => {
-    setIsAuthenticated(true);
-    setCurrentUser(user);
-    localStorage.setItem('autocheck_auth', 'true');
-    localStorage.setItem('autocheck_user', user);
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    localStorage.removeItem('autocheck_auth');
-    localStorage.removeItem('autocheck_user');
-  };
+  const handleLogout = useCallback(() => {
+    setIsAuthenticated(false); setCurrentUser(null);
+    if (typeof window !== 'undefined') { window.localStorage.removeItem('autocheck_auth'); window.localStorage.removeItem('autocheck_user'); }
+  }, []);
 
   if (!isAuthenticated) return <Login onLogin={handleLogin} />;
-
   const isDesktop = windowWidth >= 1024;
-
-  const menuItems = [
-    { id: 'carros', label: 'Carros', icon: 'fa-car' },
-    { id: 'motos', label: 'Motos', icon: 'fa-motorcycle' },
-    { id: 'history', label: 'Histórico', icon: 'fa-calendar-check' },
-  ];
+  const menuItems = [{ id: 'carros', label: 'Carros', icon: 'fa-car' }, { id: 'history', label: 'Histórico', icon: 'fa-calendar-check' }];
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
@@ -151,7 +109,10 @@ const App = () => {
         <div className="flex flex-col h-full">
           <div className="p-4 h-20 flex items-center justify-between border-b border-slate-50 dark:border-slate-800">
             {(isSidebarOpen || !isDesktop) ? (
-              <Logo className="h-6" />
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#1D63BD] to-cyan-500 flex items-center justify-center text-white font-black">AC</div>
+                <div className="font-black uppercase">AutoCheck</div>
+              </div>
             ) : (
               <div className="w-full flex justify-center">
                 <i className="fas fa-check-circle text-[#1D63BD] text-3xl"></i>
@@ -227,50 +188,10 @@ const App = () => {
         </header>
 
         <div className="max-w-4xl mx-auto p-6 sm:p-10">
-          {activeTab === 'carros' && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <InspectionForm 
-                 initialData={formData} 
-                 onSubmit={handleSubmit}
-                 customSections={customSections.carros}
-                 onAddSection={(title) => handleAddSection('carros', title)}
-                 onRemoveSection={(id) => handleRemoveSection('carros', id)}
-                 onAddFieldToSection={(sId, label) => handleAddFieldToSection('carros', sId, label)}
-                 onRemoveFieldFromSection={(sId, fId) => handleRemoveFieldFromSection('carros', sId, fId)}
-                 savedVehicles={savedVehicles}
-                 onDeleteVehicle={handleDeleteSavedVehicle}
-               />
-            </div>
-          )}
-
-          {activeTab === 'motos' && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <MotoInspectionForm 
-                 onSubmit={handleSubmit}
-                 customSections={customSections.motos}
-                 onAddSection={(title) => handleAddSection('motos', title)}
-                 onRemoveSection={(id) => handleRemoveSection('motos', id)}
-                 onAddFieldToSection={(sId, label) => handleAddFieldToSection('motos', sId, label)}
-                 onRemoveFieldFromSection={(sId, fId) => handleRemoveFieldFromSection('motos', sId, fId)}
-                 savedVehicles={savedVehicles}
-                 onDeleteVehicle={handleDeleteSavedVehicle}
-               />
-            </div>
-          )}
-
-          {activeTab === 'history' && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <HistoryView 
-                 history={history} 
-                 onDelete={(id) => { if(window.confirm('Excluir registro?')) setHistory(prev => prev.filter(i => i.id !== id)) }} 
-                 onViewReport={(data) => { setFormData(data); setShowReport(true); }} 
-               />
-            </div>
-          )}
+          {activeTab === 'carros' && <div className="animate-in fade-in slide-in-from-bottom-4 duration-500"><InspectionForm initialData={formData} onSubmit={handleSaveToHistory} customSections={customSections.carros} onAddSection={(t) => handleAddSection('carros', t)} onRemoveSection={(i) => handleRemoveSection('carros', i)} onAddFieldToSection={(s, l) => handleAddField('carros', s, l)} onRemoveFieldFromSection={(s, f) => handleRemoveField('carros', s, f)} savedVehicles={savedVehicles} onDeleteVehicle={handleDeleteVehicle} /></div>}
+          {activeTab === 'history' && <div className="animate-in fade-in slide-in-from-bottom-4 duration-500"><HistoryView history={history} onDelete={(i) => window.confirm('Excluir?') && handleDeleteInspection(i)} onViewReport={(d) => { setFormData(d); setActiveTab('carros'); }} /></div>}
         </div>
       </main>
-
-      {showReport && <ReportModal data={formData} onClose={() => setShowReport(false)} onSaveToHistory={handleSaveToHistory} />}
     </div>
   );
 };
